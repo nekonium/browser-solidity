@@ -28,7 +28,7 @@ var css = csjs`
     width: 70%;
     height: 32px;
     float: left;
-    padding: .8em;
+    padding: .0em .8em;
   }
   .select extends ${styles.dropdown} {
     width: 70%;
