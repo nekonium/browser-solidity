@@ -95,7 +95,7 @@ function ExecutionContext () {
   }
 
   this.executionContextChange = function (context, endPointUrl) {
-    if (context === 'web3' && !confirm('Are you sure you want to connect to an ethereum node?')) {
+    if (context === 'web3' && !confirm('Are you sure you want to connect to an nekonium node?')) {
       return false
     } else if (context === 'injected' && injectedProvider === undefined) {
       return false
@@ -103,7 +103,7 @@ function ExecutionContext () {
       if (context === 'web3') {
         executionContext = context
         if (!endPointUrl) {
-          endPointUrl = 'http://localhost:8545'
+          endPointUrl = 'http://localhost:8293'
         }
         endPointUrl = prompt('Web3 Provider Endpoint', endPointUrl)
         setProviderFromEndpoint(endPointUrl)
