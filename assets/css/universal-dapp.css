@@ -95,13 +95,14 @@
 
 .udapp-close:before {
 	position: absolute;
-	font-family: monospace;
+	font-family: FontAwesome;
 	top: .4em;
 	right: .4em;
 	width: 1.5em;
 	height: 1.5em;
 	text-align: center;
-	content: "x";
+	content: "\f00d";
+	color: rgba(0,0,0,0.5);
 	cursor: pointer;
 	z-index: 9999;
 }
