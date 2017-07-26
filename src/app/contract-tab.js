@@ -102,7 +102,7 @@ function contractTab (container, appAPI, appEvents, opts) {
       </div>
       <div class="${css.crow}">
       <div class="${css.col1_1}">Value</div>
-        <input type="text" class="${css.col2}" id="value" value="0" title="(e.g. .7 ether ...)">
+        <input type="text" class="${css.col2}" id="value" value="0" title="(e.g. .7 nuko ...)">
       </div>
       <div id="output" class="${css.contract}"></div>
     </div>
