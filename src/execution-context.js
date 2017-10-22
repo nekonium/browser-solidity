@@ -17,7 +17,7 @@ if (typeof window.web3 !== 'undefined') {
   injectedProvider = window.web3.currentProvider
   web3 = new Web3(injectedProvider)
 } else {
-  web3 = new Web3(new Web3.providers.HttpProvider('http://localhost:8545'))
+  web3 = new Web3(new Web3.providers.HttpProvider('http://localhost:8293'))
 }
 
 var blankWeb3 = new Web3()
@@ -115,7 +115,7 @@ function ExecutionContext () {
     if (!cb) cb = () => {}
     function runPrompt () {
       if (!endPointUrl) {
-        endPointUrl = 'http://localhost:8545'
+        endPointUrl = 'http://localhost:8293'
       }
       modalDialogCustom.prompt(null, 'Web3 Provider Endpoint', endPointUrl, (target) => {
         setProviderFromEndpoint(target, context, cb)
@@ -149,7 +149,7 @@ function ExecutionContext () {
     }
 
     if (context === 'web3') {
-      modalDialogCustom.confirm(null, 'Are you sure you want to connect to an ethereum node?',
+      modalDialogCustom.confirm(null, 'Are you sure you want to connect to an nekonium node?',
         () => { runPrompt(endPointUrl) }, () => { cb() }
       )
     }

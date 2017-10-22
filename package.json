@@ -55,12 +55,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ethereum/browser-solidity.git"
+    "url": "git+https://github.com/nekonium/browser-solidity.git"
   },
   "keywords": [
     "ethereum",
     "solidity",
-    "compiler"
+    "compiler",
+    "nekonium"
   ],
   "author": "chriseth",
   "license": "MIT",
