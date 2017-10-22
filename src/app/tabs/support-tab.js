@@ -58,10 +58,12 @@ var css = csjs`
 
 var infoText = yo`
   <div>
-    Have a question, found a bug or want to propose a feature? Have a look at the
-    <a href='https://github.com/ethereum/browser-solidity/issues'> issues</a> or check out
+    Have a question, found a bug or want to propose a feature for Nekonium Remix? Have a look at the
+    <a href='https://github.com/nekonium/browser-solidity/issues'> issues</a> or check out
     <a href='https://remix.readthedocs.io/en/latest/'> the documentation page on Remix</a> or
     <a href='https://solidity.readthedocs.io/en/latest/'> Solidity</a>.
+    For about original Ethereum Remix, please propose an issue
+    <a href='https://github.com/ethereum/browser-solidity/issues'> here.</a>
   </div>
 `
 
@@ -76,11 +78,10 @@ function supportTab (container, appAPI, events, opts) {
         </div>
       </div>
       <div class="${css.chat}">
-        <div class="${css.chatTitle}" onclick=${openLink} title='Click to open chat in Gitter'>
+        <div class="${css.chatTitle}" onclick=${openLink} title='Click to open an invitation page of our Discord server'>
           <img class="${css.icon}" title="Solidity" src="assets/img/remix_logo_512x512.svg">
-          <div class="${css.chatTitleText}">ethereum/remix community chat</div>
+          <div class="${css.chatTitleText}">Come to our Discord server! 😺</div>
         </div>
-        <iframe class="${css.chatIframe}" src='https://gitter.im/ethereum/remix/~embed'>
       </div>
     </div>
   `
@@ -88,5 +89,5 @@ function supportTab (container, appAPI, events, opts) {
 }
 
 function openLink () {
-  window.open('https://gitter.im/ethereum/remix')
+  window.open('https://discordapp.com/invite/C8mJg44')
 }
