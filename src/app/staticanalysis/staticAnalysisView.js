@@ -2,19 +2,47 @@
 var StaticAnalysisRunner = require('./staticAnalysisRunner.js')
 var yo = require('yo-yo')
 var $ = require('jquery')
-var utils = require('../utils')
+var utils = require('../../lib/utils')
 var csjs = require('csjs-inject')
+
+var remix = require('ethereum-remix')
+var styleGuide = remix.ui.styleGuide
+var styles = styleGuide()
+
+var EventManager = require('ethereum-remix').lib.EventManager
 
 var css = csjs`
   .analysis {
-    font-height: 1.5em;
+    display: flex;
+    flex-direction: column;
   }
   .result {
-    margin-top: 1em;
+    margin-top: 1%;
+  }
+  .buttons  {
+    ${styles.rightPanel.analysisTab.box_AnalysisContainer}
+    display: flex;
+    align-items: center;
+  }
+  .buttonRun  {
+    ${styles.rightPanel.analysisTab.button_Run_AnalysisTab}
+    margin-right: 1%;
+  }
+  .analysisModulesContainer {
+    ${styles.rightPanel.analysisTab.box_AnalysisContainer}
+    margin-bottom: 1%;
+    line-height: 2em;
+    display: flex;
+    flex-direction: column;
+  }
+  .label {
+    display: flex;
+    align-items: center;
   }
 `
 
 function staticAnalysisView (appAPI, compilerEvent) {
+  this.event = new EventManager()
   this.view = null
   this.appAPI = appAPI
   this.runner = new StaticAnalysisRunner()
@@ -37,13 +65,12 @@ staticAnalysisView.prototype.render = function () {
   var self = this
   var view = yo`
     <div class="${css.analysis}">
-      <strong class="${css.title}">Static Analysis</strong><br>
-      <label for="autorunstaticanalysis"><input id="autorunstaticanalysis" type="checkbox" style="vertical-align:bottom" checked="true">Auto run</label>
       <div id="staticanalysismodules">
-      ${this.modulesView}
+        ${this.modulesView}
       </div>
-      <div>
-        <button onclick=${function () { self.run() }} >Run</button>
+      <div class="${css.buttons}">
+        <button class=${css.buttonRun} onclick=${function () { self.run() }} >Run</button>
+        <label class="${css.label}" for="autorunstaticanalysis"><input id="autorunstaticanalysis" type="checkbox" style="vertical-align:bottom" checked="true">Auto run</label>
       </div>
       <div class="${css.result}" "id='staticanalysisresult'></div>
     </div>
@@ -75,6 +102,7 @@ staticAnalysisView.prototype.run = function () {
   warningContainer.empty()
   if (this.lastCompilationResult) {
     var self = this
+    var warningCount = 0
     this.runner.run(this.lastCompilationResult, selected, function (results) {
       results.map(function (result, i) {
         result.report.map(function (item, i) {
@@ -89,15 +117,17 @@ staticAnalysisView.prototype.run = function () {
             location = self.appAPI.offsetToLineColumn(location, file)
             location = self.lastCompilationResult.sourceList[file] + ':' + (location.start.line + 1) + ':' + (location.start.column + 1) + ':'
           }
+          warningCount++
           self.appAPI.renderWarning(location + ' ' + item.warning + ((item.more) ? '<br><a href="' + item.more + '" target="blank">more</a>' : ''), warningContainer, {type: 'warning', useSpan: true, isHTML: true})
         })
       })
       if (warningContainer.html() === '') {
-        $('#header #menu .staticanalysisView').css('color', '')
+        $('#righthand-panel #menu .staticanalysisView').css('color', '')
         warningContainer.html('No warning to report')
       } else {
-        $('#header #menu .staticanalysisView').css('color', '#FF8B8B')
+        $('#righthand-panel #menu .staticanalysisView').css('color', styles.colors.red)
       }
+      self.event.trigger('staticAnaysisWarning', [warningCount])
     })
   } else {
     warningContainer.html('No compiled AST available')
@@ -112,7 +142,7 @@ function renderModules (modules) {
     var category = groupedModules[categoryId]
     var entriesDom = category.map((item, i) => {
       return yo`
-        <label>
+        <label class="${css.label}">
           <input id="staticanalysismodule_${categoryId}_${i}"
             type="checkbox"
             name="staticanalysismodule"
@@ -123,11 +153,8 @@ function renderModules (modules) {
         </label>
             `
     })
-    return yo`<div>
-                <br>
-                <label>
-                <b>${category[0].categoryDisplayName}</b>
-                </label>
+    return yo`<div class="${css.analysisModulesContainer}">
+                <label class="${css.label}"><b>${category[0].categoryDisplayName}</b></label>
                 ${entriesDom}
               </div>`
   })

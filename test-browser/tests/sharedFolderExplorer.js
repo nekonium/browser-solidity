@@ -3,11 +3,11 @@ var contractHelper = require('../helpers/contracts')
 var init = require('../helpers/init')
 var sauce = require('./sauce')
 
-var sources = {
-  'sources': {
-    'localhost/folder1/contract2.sol': `contract test2 { function get () returns (uint) { return 11; }}`
+var sources = [
+  {
+    'localhost/folder1/contract2.sol': 'contract test2 { function get () returns (uint) { return 11; }}'
   }
-}
+]
 
 module.exports = {
   before: function (browser, done) {
@@ -23,8 +23,9 @@ module.exports = {
 }
 
 function runTests (browser, testData) {
-  if (browser.options.desiredCapabilities.browserName === 'safari') {
-    console.log('don\'t run remixd test for safari: sauce labs doesn\'t seems to handle websocket')
+  var browserName = browser.options.desiredCapabilities.browserName
+  if (browserName === 'safari' || browserName === 'internet explorer') {
+    console.log('do not run remixd test for ' + browserName + ': sauce labs doesn\'t seems to handle websocket')
     browser.end()
     return
   }
@@ -41,8 +42,8 @@ function runTests (browser, testData) {
     .assert.containsText('[data-path="localhost/folder1/contract1.sol"]', 'contract1.sol')
     .assert.containsText('[data-path="localhost/folder1/contract2.sol"]', 'contract2.sol')
     .click('[data-path="localhost/folder1/contract2.sol"]')
-    .waitForElementPresent('.udapp .create', 50000, true, function () {
-      contractHelper.checkCompiledContracts(browser, ['localhost/folder1/contract2.sol:test2'], function () {
+    .waitForElementPresent('#compileTabView select option', 50000, true, function () {
+      contractHelper.verifyContract(browser, ['localhost/folder1/contract2.sol:test2'], function () {
         browser.click('.websocketconn').end()
       })
     })
