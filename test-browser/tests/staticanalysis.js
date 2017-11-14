@@ -11,7 +11,11 @@ contract test1 { address test = tx.origin; }
 contract test2 {}
 contract TooMuchGas {
   uint x;
-  function() { x++; }
+  function() { 
+      x++;
+    uint test;
+    uint test1;
+  }
 }`}
 ]
 
@@ -38,8 +42,9 @@ function runTests (browser) {
       .click('#staticanalysisView button')
       .waitForElementPresent('#staticanalysisresult .warning', 2000, true, function () {
         dom.listSelectorContains(['browser/Untitled.sol:2:33: Use of tx.origin',
-          'Fallback function of contract browser/Untitled.sol:TooMuchGas requires too much gas'],
-          '#staticanalysisresult .warning span',
+          'Fallback function of contract browser/Untitled.sol:TooMuchGas requires too much gas',
+          'TooMuchGas.(): Variables have very similar names test and test1.'],
+          '#staticanalysisresult .warning',
           browser, function () {
             browser.end()
           }
