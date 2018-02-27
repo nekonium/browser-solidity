@@ -1,48 +1,9 @@
 'use strict'
 var yo = require('yo-yo')
-var csjs = require('csjs-inject')
-var remix = require('ethereum-remix')
-var styleGuide = remix.ui.styleGuide
-var styles = styleGuide()
-var SourceMappingDecoder = remix.util.SourceMappingDecoder
+var remixLib = require('remix-lib')
+var SourceMappingDecoder = remixLib.SourceMappingDecoder
 
-var css = csjs`
-  .contextview            {
-      opacity           : 0.8;
-    }
-  .container              {
-    padding             : 1px 15px;
-  }
-  .line                   {
-    display             : flex;
-    justify-content     : flex-end;
-    align-items         : center;
-    text-overflow       : ellipsis;
-    overflow            : hidden;
-    white-space         : nowrap;
-    color               : ${styles.editor.text_Primary};
-    font-size           : 11px;
-  }
-  .type                   {
-    font-style        : italic;
-    margin-right      : 5px;
-  }
-  .name                   {
-    font-weight       : bold;
-    margin-right      : 15px;
-  }
-  .jumpto                 {
-    cursor            : pointer;
-    margin-right      : 5px;
-    color             : ${styles.editor.icon_Color_Editor};
-  }
-  jumpto:hover            {
-    color             : ${styles.editor.icon_HoverColor_Editor};
-  }
-  .referencesnb           {
-    float             : right;
-  }
-`
+var css = require('./styles/contextView-styles')
 
 /*
   Display information about the current focused code:
@@ -59,6 +20,7 @@ class ContextView {
     this._nodes
     this._current
     this.sourceMappingDecoder = new SourceMappingDecoder()
+    this.previousElement = null
     event.contextualListener.register('contextChanged', nodes => {
       this._nodes = nodes
       this.update()
@@ -98,7 +60,7 @@ class ContextView {
   }
 
   _renderTarget () {
-    this._current = null
+    var previous = this._current
     if (this._nodes && this._nodes.length) {
       var last = this._nodes[this._nodes.length - 1]
       if (isDefinition(last)) {
@@ -107,18 +69,40 @@ class ContextView {
         var target = this._api.contextualListener.declarationOf(last)
         if (target) {
           this._current = target
+        } else {
+          this._current = null
         }
       }
     }
-    return this._render(this._current)
+    if (!this._current || !previous || previous.id !== this._current.id) {
+      this.previousElement = this._render(this._current, last)
+    }
+    return this.previousElement
   }
 
-  _render (node) {
+  _render (node, nodeAtCursorPosition) {
     if (!node) return yo`<div></div>`
     var self = this
     var references = this._api.contextualListener.referencesOf(node)
-    var type = node.attributes.type ? node.attributes.type : node.name
+    var type = (node.attributes && node.attributes.type) ? node.attributes.type : node.name
     references = `${references ? references.length : '0'} reference(s)`
+
+    var ref = 0
+    var nodes = self._api.contextualListener.getActiveHighlights()
+    for (var k in nodes) {
+      if (nodeAtCursorPosition.id === nodes[k].nodeId) {
+        ref = k
+        break
+      }
+    }
+
+    // JUMP BETWEEN REFERENCES
+    function jump (e) {
+      e.target.dataset.action === 'next' ? ref++ : ref--
+      if (ref < 0) ref = nodes.length - 1
+      if (ref >= nodes.length) ref = 0
+      self._api.jumpTo(nodes[ref].position)
+    }
 
     function jumpTo () {
       if (node && node.src) {
@@ -130,11 +114,27 @@ class ContextView {
     }
 
     return yo`<div class=${css.line}>
-      <div title=${type} class=${css.type} >${type}</div>
-      <div title=${node.attributes.name} class=${css.name} >${node.attributes.name}</div>
-      <i title='Go to Definition' class="fa fa-share ${css.jumpto}" aria-hidden="true" onclick=${jumpTo}></i>
+      <div title=${type} class=${css.type}>${type}</div>
+      <div title=${node.attributes.name} class=${css.name}>${node.attributes.name}</div>
+      <i class="fa fa-share ${css.jump}" aria-hidden="true" onclick=${jumpTo}></i>
       <span class=${css.referencesnb}>${references}</span>
+      <i data-action='previous' class="fa fa-chevron-up ${css.jump}" aria-hidden="true" onclick=${jump}></i>
+      <i data-action='next' class="fa fa-chevron-down ${css.jump}" aria-hidden="true" onclick=${jump}></i>
+        ${showGasEstimation()}
     </div>`
+
+    function showGasEstimation () {
+      if (node.name === 'FunctionDefinition') {
+        var result = self._api.contextualListener.gasEstimation(node)
+        var executionCost = 'Execution cost: ' + result.executionCost + ' gas'
+        var codeDepositCost = 'Code deposit cost: ' + result.codeDepositCost + ' gas'
+        var estimatedGas = result.codeDepositCost ? `${codeDepositCost}, ${executionCost}` : `${executionCost}`
+        return yo`<div class=${css.gasEstimation}>
+        <img class=${css.gasStationIcon} title='Gas estimation' src='assets/img/gasStation_50.png'>
+        ${estimatedGas}
+        </div>`
+      }
+    }
   }
 }
 

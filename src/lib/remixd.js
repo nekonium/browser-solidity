@@ -1,5 +1,5 @@
 'use strict'
-var EventManager = require('ethereum-remix').lib.EventManager
+var EventManager = require('remix-lib').EventManager
 var modalDialog = require('../app/ui/modaldialog')
 var yo = require('yo-yo')
 
@@ -48,6 +48,12 @@ class Remixd {
         this.event.trigger('replied', [data])
       } else if (data.type === 'notification') {
         this.event.trigger('notified', [data])
+      } else if (data.type === 'system') {
+        if (data.error) {
+          this.event.trigger('system', [{
+            error: data.error
+          }])
+        }
       }
     })
 

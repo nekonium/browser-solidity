@@ -1,161 +1,18 @@
 /* global */
 var $ = require('jquery')
-
 var yo = require('yo-yo')
-const copy = require('clipboard-copy')
 
 var parseContracts = require('../contract/contractParser')
 var publishOnSwarm = require('../contract/publishOnSwarm')
 var modalDialog = require('../ui/modaldialog')
 var modalDialogCustom = require('../ui/modal-dialog-custom')
-var TreeView = require('ethereum-remix').ui.TreeView
+var TreeView = require('remix-debugger').ui.TreeView
+var copyToClipboard = require('../ui/copy-to-clipboard')
 
-// -------------- styling ----------------------
-var csjs = require('csjs-inject')
-var remix = require('ethereum-remix')
-var styleGuide = remix.ui.styleGuide
-var styles = styleGuide()
-
-var css = csjs`
-  .compileTabView {
-    padding: 2%;
-  }
-  .contract {
-    display: block;
-    margin: 3% 0;
-  }
-  .compileContainer  {
-    ${styles.rightPanel.compileTab.box_CompileContainer};
-    margin-bottom: 2%;
-  }
-  .autocompileContainer {
-    width: 90px;
-    display: flex;
-    align-items: center;
-  }
-  .autocompile {}
-  .autocompileTitle {
-    font-weight: bold;
-    margin: 1% 0;
-  }
-  .autocompileText {
-    margin: 1% 0;
-    font-size: 12px;
-    overflow: hidden;
-    word-break: normal;
-    line-height: initial;
-  }
-  .warnCompilationSlow {
-    color: ${styles.rightPanel.compileTab.icon_WarnCompilation_Color};
-    margin-left: 1%;
-  }
-  .compileButtons {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-  .name {
-    display: flex;
-  }
-  .size {
-    display: flex;
-  }
-  .compileButton {
-    ${styles.rightPanel.compileTab.button_Compile};
-    width: 120px;
-    min-width: 110px;
-    margin-right: 1%;
-    font-size: 12px;
-  }
-  .container {
-    ${styles.rightPanel.compileTab.box_CompileContainer};
-    margin: 0;
-    display: flex;
-    align-items: center;
-  }
-  .contractNames {
-    ${styles.rightPanel.compileTab.dropdown_CompileContract};
-    margin-right: 5%;
-  }
-  .contractButtons {
-    display: flex;
-    cursor: pointer;
-    justify-content: center;
-    text-align: center;
-  }
-  .details {
-    ${styles.rightPanel.compileTab.button_Details};
-  }
-  .publish {
-    ${styles.rightPanel.compileTab.button_Publish};
-    margin-left: 2%;
-    width: 120px;
-  }
-  .log {
-    ${styles.rightPanel.compileTab.box_CompileContainer};
-    display: flex;
-    flex-direction: column;
-    margin-bottom: 5%;
-  }
-  .key {
-    margin-right: 5px;
-    color: ${styles.rightPanel.text_Primary};
-    text-transform: uppercase;
-    width: 100%;
-  }
-  .value {
-    display: flex;
-    width: 100%;
-    margin-top: 1.5%;
-  }
-  .copyDetails,
-  .questionMark {
-    margin-left: 2%;
-    cursor: pointer;
-    color: ${styles.rightPanel.icon_Color_TogglePanel};
-  }
-  .copyDetails:hover,
-  .questionMark:hover {
-    color: ${styles.rightPanel.icon_HoverColor_TogglePanel};
-  }
-  .detailsJSON {
-    padding: 8px 0;
-    background-color: ${styles.rightPanel.modalDialog_BackgroundColor_Primary};
-    border: none;
-    color: ${styles.rightPanel.modalDialog_text_Secondary};
-  }
-  .icon {
-    margin-right: 3%;
-  }
-  .spinningIcon {
-    margin-right: .3em;
-    animation: spin 2s linear infinite;
-  }
-  .bouncingIcon {
-    margin-right: .3em;
-    animation: bounce 2s infinite;
-  }
-  @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-  }
-  @-webkit-keyframes bounce {
-  0% {
-    margin-bottom: 0;
-    color: ${styles.colors.transparent};
-  }
-  70% {
-    margin-bottom: 0;
-    color: ${styles.rightPanel.text_Secondary};
-  }
-  100% {
-    margin-bottom: 0;
-    color: ${styles.colors.transparent};
-  }
-}
-`
-
-module.exports = compileTab
+var css = require('./styles/compile-tab-styles')
+var remixLib = require('remix-lib')
+var styleGuide = remixLib.ui.themeChooser
+var styles = styleGuide.chooser()
 
 function compileTab (container, appAPI, appEvents, opts) {
   if (typeof container === 'string') container = document.querySelector(container)
@@ -205,7 +62,7 @@ function compileTab (container, appAPI, appEvents, opts) {
 
   // ----------------- autoCompile -----------------
   var autoCompileInput = compileContainer.querySelector('#autoCompile')
-  var autoCompile = true
+  var autoCompile = false
   if (appAPI.config.exists('autoCompile')) {
     autoCompile = appAPI.config.get('autoCompile')
   }
@@ -295,19 +152,19 @@ function compileTab (container, appAPI, appEvents, opts) {
       var error = false
       if (data['error']) {
         error = true
-        appAPI.compilationMessage(data['error'], $(errorContainer))
+        appAPI.compilationMessage(data['error'].formattedMessage, $(errorContainer), {type: data['error'].severity})
       }
       if (data['errors']) {
         if (data['errors'].length) error = true
         data['errors'].forEach(function (err) {
-          appAPI.compilationMessage(err, $(errorContainer))
+          appAPI.compilationMessage(err.formattedMessage, $(errorContainer), {type: err.severity})
         })
       }
       if (!error) {
         if (data.contracts) {
-          for (var contract in data.contracts) {
-            appAPI.compilationMessage(contract, $(errorContainer), {type: 'success'})
-          }
+          appAPI.visitContracts((contract) => {
+            appAPI.compilationMessage(contract.name, $(errorContainer), {type: 'success'})
+          })
         }
       }
     })
@@ -340,14 +197,14 @@ function compileTab (container, appAPI, appEvents, opts) {
       contractNames.innerHTML = ''
       if (success) {
         contractNames.removeAttribute('disabled')
-        for (var name in data.contracts) {
-          contractsDetails[name] = parseContracts(name, data.contracts[name], appAPI.currentCompiledSourceCode())
+        appAPI.visitContracts((contract) => {
+          contractsDetails[contract.name] = parseContracts(contract.name, contract.object, appAPI.getSource(contract.file))
           var contractName = yo`
             <option>
-              ${name}
+              ${contract.name}
             </option>`
           contractNames.appendChild(contractName)
-        }
+        })
         appAPI.resetDapp(contractsDetails)
       } else {
         contractNames.setAttribute('disabled', true)
@@ -357,18 +214,19 @@ function compileTab (container, appAPI, appEvents, opts) {
 
     function details () {
       var select = el.querySelector('select')
+
       if (select.children.length > 0 && select.selectedIndex >= 0) {
         var contractName = select.children[select.selectedIndex].innerHTML
         var contractProperties = contractsDetails[contractName]
         var log = yo`<div class="${css.detailsJSON}"></div>`
         Object.keys(contractProperties).map(propertyName => {
-          var copyDetails = yo`<span class="${css.copyDetails}"><i title="Copy value to clipboard" class="fa fa-clipboard" onclick=${() => { copy(contractProperties[propertyName]) }} aria-hidden="true"></i></span>`
+          var copyDetails = yo`<span class="${css.copyDetails}">
+            ${copyToClipboard(() => contractProperties[propertyName])}
+          </span>`
           var questionMark = yo`<span class="${css.questionMark}"><i title="${detailsHelpSection()[propertyName]}" class="fa fa-question-circle" aria-hidden="true"></i></span>`
-          var keyDisplayName
-          (propertyName === 'interface') ? keyDisplayName = 'interface - abi' : keyDisplayName = propertyName
           log.appendChild(yo`
             <div class=${css.log}>
-              <div class="${css.key}">${keyDisplayName} ${copyDetails} ${questionMark}</div>
+              <div class="${css.key}">${propertyName} ${copyDetails} ${questionMark}</div>
               ${insertValue(contractProperties, propertyName)}
             </div>
             `)
@@ -380,11 +238,9 @@ function compileTab (container, appAPI, appEvents, opts) {
     function insertValue (details, propertyName) {
       var value = yo`<pre class="${css.value}"></pre>`
       var node
-      if (propertyName === 'bytecode' || propertyName === 'metadataHash' || propertyName === 'swarmLocation' || propertyName === 'Runtime Bytecode' || propertyName === 'Opcodes') {
-        node = yo`<div>${details[propertyName].slice(0, 60) + '...'}</div>`
-      } else if (propertyName === 'web3Deploy' || propertyName === 'name') {
+      if (propertyName === 'web3Deploy' || propertyName === 'name' || propertyName === 'Assembly') {
         node = yo`<pre>${details[propertyName]}</pre>`
-      } else if (propertyName === 'interface' || propertyName === 'metadata') {
+      } else if (propertyName === 'abi' || propertyName === 'metadata') {
         var treeView = new TreeView({
           extractData: function (item, parent, key) {
             var ret = {}
@@ -407,7 +263,7 @@ function compileTab (container, appAPI, appEvents, opts) {
         })
         if (details[propertyName] !== '') {
           try {
-            node = yo`<div>${treeView.render(JSON.parse(details[propertyName]))}</div>` // catch in case the parsing fails.
+            node = yo`<div>${treeView.render(typeof details[propertyName] === 'object' ? details[propertyName] : JSON.parse(details[propertyName]))}</div>` // catch in case the parsing fails.
           } catch (e) {
             node = yo`<div>Unable to display "${propertyName}": ${e.message}</div>`
           }
@@ -438,12 +294,16 @@ function compileTab (container, appAPI, appEvents, opts) {
             } else {
               modalDialogCustom.alert(yo`<span>Metadata published successfully.<br />The Swarm address of the metadata file is available in the contract details.</span>`)
             }
+          }, function (item) {
+            // triggered each time there's a new verified publish (means hash correspond)
+            appAPI.fileProvider('swarm').addReadOnly(item.hash, item.content)
           })
         }
       }
     }
     return el
   }
+  return el
 }
 
 function detailsHelpSection () {
@@ -456,9 +316,11 @@ function detailsHelpSection () {
     'gasEstimates': 'Gas estimation for each function call',
     'metadata': 'Contains all informations related to the compilation',
     'metadataHash': 'Hash representing all metadata information',
-    'interface': 'ABI: describing all the functions (input/output params, scope, ...)',
+    'abi': 'ABI: describing all the functions (input/output params, scope, ...)',
     'name': 'Name of the compiled contract',
     'swarmLocation': 'Swarm url where all metadata information can be found (contract needs to be published first)',
     'web3Deploy': 'Copy/paste this code to any JavaScript/Web3 console to deploy this contract'
   }
 }
+
+module.exports = compileTab

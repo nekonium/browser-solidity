@@ -4,6 +4,7 @@ var CONFIG_FILE = '.remix.config'
 
 function Config (storage) {
   this.items = {}
+  this.unpersistedItems = {}
 
   // load on instantiation
   try {
@@ -33,10 +34,24 @@ function Config (storage) {
 
   this.ensureStorageUpdated = function (key) {
     if (key === 'currentFile') {
-      if (this.items[key] && this.items[key] !== '' && this.items[key].indexOf('browser/') !== 0 && this.items[key].indexOf('localhost/') !== 0) {
+      if (this.items[key] && this.items[key] !== '' &&
+        this.items[key].indexOf('browser/') !== 0 &&
+        this.items[key].indexOf('localhost/') !== 0 &&
+        this.items[key].indexOf('swarm/') !== 0 &&
+        this.items[key].indexOf('gist/') !== 0 &&
+        this.items[key].indexOf('github/') !== 0 &&
+        this.items[key].indexOf('ipfs/') !== 0) {
         this.items[key] = 'browser/' + this.items[key]
       }
     }
+  }
+
+  this.getUnpersistedProperty = function (key) {
+    return this.unpersistedItems[key]
+  }
+
+  this.setUnpersistedProperty = function (key, value) {
+    this.unpersistedItems[key] = value
   }
 }
 

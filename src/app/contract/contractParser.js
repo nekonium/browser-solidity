@@ -1,7 +1,7 @@
 'use strict'
 
-var $ = require('jquery')
-var txHelper = require('../execution/txHelper')
+var remixLib = require('remix-lib')
+var txHelper = remixLib.execution.txHelper
 
 module.exports = (contractName, contract, compiledSource) => {
   return getDetails(contractName, contract, compiledSource)
@@ -11,39 +11,38 @@ var getDetails = function (contractName, contract, source) {
   var detail = {}
   detail.name = contractName
   detail.metadata = contract.metadata
-  if (contract.bytecode) {
-    detail.bytecode = contract.bytecode
+  if (contract.evm.bytecode.object) {
+    detail.bytecode = contract.evm.bytecode.object
   }
 
-  detail.interface = contract.interface
+  detail.abi = contract.abi
 
-  if (contract.bytecode) {
-    detail.bytecode = contract.bytecode
-    detail.web3Deploy = gethDeploy(contractName.toLowerCase(), contract['interface'], contract.bytecode)
+  if (contract.evm.bytecode.object) {
+    detail.bytecode = contract.evm.bytecode
+    detail.web3Deploy = gethDeploy(contractName.toLowerCase(), contract.abi, contract.evm.bytecode.object)
 
-    detail.metadataHash = retrieveMetadataHash(contract.bytecode)
+    detail.metadataHash = retrieveMetadataHash(contract.evm.bytecode.object)
     if (detail.metadataHash) {
       detail.swarmLocation = 'bzzr://' + detail.metadataHash
     }
   }
 
   detail.functionHashes = {}
-  for (var fun in contract.functionHashes) {
-    detail.functionHashes[contract.functionHashes[fun]] = fun
+  for (var fun in contract.evm.methodIdentifiers) {
+    detail.functionHashes[contract.evm.methodIdentifiers[fun]] = fun
   }
 
-  detail.gasEstimates = formatGasEstimates(contract.gasEstimates)
+  detail.gasEstimates = formatGasEstimates(contract.evm.gasEstimates)
 
-  if (contract.runtimeBytecode && contract.runtimeBytecode.length > 0) {
-    detail['Runtime Bytecode'] = contract.runtimeBytecode
+  detail.devdoc = contract.devdoc
+  detail.userdoc = contract.userdoc
+
+  if (contract.evm.deployedBytecode && contract.evm.deployedBytecode.object.length > 0) {
+    detail['Runtime Bytecode'] = contract.evm.deployedBytecode
   }
 
-  if (contract.opcodes !== undefined && contract.opcodes !== '') {
-    detail['Opcodes'] = contract.opcodes
-  }
-
-  if (contract.assembly !== null) {
-    detail['Assembly'] = formatAssemblyText(contract.assembly, '', source)
+  if (source && contract.assembly !== null) {
+    detail['Assembly'] = formatAssemblyText(contract.evm.legacyAssembly, '', source.content)
   }
 
   return detail
@@ -51,6 +50,9 @@ var getDetails = function (contractName, contract, source) {
 
 var retrieveMetadataHash = function (bytecode) {
   var match = /a165627a7a72305820([0-9a-f]{64})0029$/.exec(bytecode)
+  if (!match) {
+    match = /a265627a7a72305820([0-9a-f]{64})6c6578706572696d656e74616cf50037$/.exec(bytecode)
+  }
   if (match) {
     return match[1]
   }
@@ -61,7 +63,7 @@ var formatAssemblyText = function (asm, prefix, source) {
     return prefix + asm + '\n'
   }
   var text = prefix + '.code\n'
-  $.each(asm['.code'], function (i, item) {
+  asm['.code'].forEach(function (item, _i) {
     var v = item.value === undefined ? '' : item.value
     var src = ''
     if (item.begin !== undefined && item.end !== undefined) {
@@ -76,25 +78,26 @@ var formatAssemblyText = function (asm, prefix, source) {
     text += prefix + item.name + ' ' + v + '\t\t\t' + src + '\n'
   })
   text += prefix + '.data\n'
-  if (asm['.data']) {
-    $.each(asm['.data'], function (i, item) {
-      text += '  ' + prefix + '' + i + ':\n'
-      text += formatAssemblyText(item, prefix + '    ', source)
-    })
+  let asmData = (asm['.data'] || [])
+  for (let i in asmData) {
+    let item = asmData[i]
+
+    text += '  ' + prefix + '' + i + ':\n'
+    text += formatAssemblyText(item, prefix + '    ', source)
   }
   return text
 }
 
 var gethDeploy = function (contractName, jsonInterface, bytecode) {
   var code = ''
-  var funABI = txHelper.getConstructorInterface(JSON.parse(jsonInterface))
+  var funABI = txHelper.getConstructorInterface(jsonInterface)
 
   funABI.inputs.forEach(function (inp) {
     code += 'var ' + inp.name + ' = /* var of type ' + inp.type + ' here */ ;\n'
   })
 
   contractName = contractName.replace(/[:./]/g, '_')
-  code += 'var ' + contractName + 'Contract = web3.eth.contract(' + jsonInterface.replace('\n', '') + ');' +
+  code += 'var ' + contractName + 'Contract = web3.eth.contract(' + JSON.stringify(jsonInterface).replace('\n', '') + ');' +
     '\nvar ' + contractName + ' = ' + contractName + 'Contract.new('
 
   funABI.inputs.forEach(function (inp) {
@@ -116,10 +119,8 @@ var gethDeploy = function (contractName, jsonInterface, bytecode) {
 }
 
 var formatGasEstimates = function (data) {
-  // FIXME: the whole gasEstimates object should be nil instead
-  if (data.creation === undefined && data.external === undefined && data.internal === undefined) {
-    return
-  }
+  if (!data) return {}
+  if (data.creation === undefined && data.external === undefined && data.internal === undefined) return {}
 
   var gasToText = function (g) {
     return g === null ? 'unknown' : g
@@ -128,7 +129,7 @@ var formatGasEstimates = function (data) {
   var ret = {}
   var fun
   if ('creation' in data) {
-    ret['Creation'] = gasToText(data.creation[0]) + ' + ' + gasToText(data.creation[1]) + '\n'
+    ret['Creation'] = data.creation
   }
 
   if ('external' in data) {

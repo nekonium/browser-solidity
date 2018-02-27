@@ -1,45 +1,16 @@
 'use strict'
-var StaticAnalysisRunner = require('./staticAnalysisRunner.js')
+var StaticAnalysisRunner = require('remix-solidity').CodeAnalysis
 var yo = require('yo-yo')
 var $ = require('jquery')
-var utils = require('../../lib/utils')
-var csjs = require('csjs-inject')
+var remixLib = require('remix-lib')
+var utils = remixLib.util
 
-var remix = require('ethereum-remix')
-var styleGuide = remix.ui.styleGuide
-var styles = styleGuide()
+var styleGuide = remixLib.ui.themeChooser
+var styles = styleGuide.chooser()
 
-var EventManager = require('ethereum-remix').lib.EventManager
+var css = require('./styles/staticAnalysisView-styles')
 
-var css = csjs`
-  .analysis {
-    display: flex;
-    flex-direction: column;
-  }
-  .result {
-    margin-top: 1%;
-  }
-  .buttons  {
-    ${styles.rightPanel.analysisTab.box_AnalysisContainer}
-    display: flex;
-    align-items: center;
-  }
-  .buttonRun  {
-    ${styles.rightPanel.analysisTab.button_Run_AnalysisTab}
-    margin-right: 1%;
-  }
-  .analysisModulesContainer {
-    ${styles.rightPanel.analysisTab.box_AnalysisContainer}
-    margin-bottom: 1%;
-    line-height: 2em;
-    display: flex;
-    flex-direction: column;
-  }
-  .label {
-    display: flex;
-    align-items: center;
-  }
-`
+var EventManager = remixLib.EventManager
 
 function staticAnalysisView (appAPI, compilerEvent) {
   this.event = new EventManager()
@@ -115,7 +86,7 @@ staticAnalysisView.prototype.run = function () {
               length: parseInt(split[1])
             }
             location = self.appAPI.offsetToLineColumn(location, file)
-            location = self.lastCompilationResult.sourceList[file] + ':' + (location.start.line + 1) + ':' + (location.start.column + 1) + ': '
+            location = Object.keys(self.lastCompilationResult.contracts)[file] + ':' + (location.start.line + 1) + ':' + (location.start.column + 1) + ':'
           }
           warningCount++
           var msg = yo`<span>${location} ${item.warning} ${item.more ? yo`<span><br><a href="${item.more}" target="blank">more</a></span>` : yo`<span></span>`}</span>`
