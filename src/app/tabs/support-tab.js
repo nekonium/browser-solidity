@@ -1,76 +1,20 @@
 var yo = require('yo-yo')
 
-// -------------- styling ----------------------
-var csjs = require('csjs-inject')
-var remix = require('ethereum-remix')
-var styleGuide = remix.ui.styleGuide
-var styles = styleGuide()
-
-var css = csjs`
-  .supportTabView {
-    height: 100vh;
-    padding: 2%;
-    padding-bottom: 3em;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  .chat {
-    ${styles.rightPanel.supportTab.box_IframeContainer}
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    height: 85%;
-    padding: 0;
-  }
-  .chatTitle {
-    height: 40px;
-    width: 90%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-top: 15px;
-  }
-  .chatTitle:hover {
-    cursor: pointer;
-  }
-  .icon {
-    height: 70%;
-    margin-right: 2%;
-  }
-  .chatTitleText {
-    font-size: 17px;
-    font-weight: bold;
-  }
-  .chatTitleText {
-    opacity: 0.8;
-  }
-  .chatIframe {
-    width: 100%;
-    height: 100%;
-    transform: scale(0.9);
-    padding: 0;
-  }
-  .infoBox {
-    ${styles.rightPanel.supportTab.box_SupportInfo}
-  }
-`
+var css = require('./styles/support-tab-styles')
 
 var infoText = yo`
   <div>
-    Have a question, found a bug or want to propose a feature for Nekonium Remix? Have a look at the
-    <a href='https://github.com/nekonium/browser-solidity/issues'> issues</a> or check out
-    <a href='https://remix.readthedocs.io/en/latest/'> the documentation page on Remix</a> or
-    <a href='https://solidity.readthedocs.io/en/latest/'> Solidity</a>.
+    Have a question, found a bug or want to propose a feature? Have a look at the
+    <a target="_blank" href='https://github.com/nekonium/browser-solidity/issues'> issues</a> or check out
+    <a target="_blank" href='https://remix.readthedocs.io/en/latest/'> the documentation page on Remix</a> or
+    <a target="_blank" href='https://solidity.readthedocs.io/en/latest/'> Solidity</a>.
     For about original Ethereum Remix, please propose an issue
-    <a href='https://github.com/ethereum/browser-solidity/issues'> here.</a>
+    <a href='https://github.com/ethereum/browser-solidity/issues'> here</a>.
   </div>
 `
 
-module.exports = supportTab
-
-function supportTab (container, appAPI, events, opts) {
-  var el = yo`
+function supportTabView () {
+  return yo`
     <div class="${css.supportTabView} "id="supportView">
       <div>
         <div class="${css.infoBox}">
@@ -79,15 +23,33 @@ function supportTab (container, appAPI, events, opts) {
       </div>
       <div class="${css.chat}">
         <div class="${css.chatTitle}" onclick=${openLink} title='Click to open an invitation page of our Discord server'>
-          <img class="${css.icon}" title="Solidity" src="assets/img/remix_logo_512x512.svg">
           <div class="${css.chatTitleText}">Come to our Discord server! 😺</div>
         </div>
       </div>
     </div>
   `
+}
+
+function supportTab (container, events) {
+  let el = supportTabView()
+  let gitterIsLoaded = false
+
+  events.app.register('tabChanged', (tabName) => {
+    if (tabName !== 'Support' || gitterIsLoaded) {
+      return
+    }
+
+    yo.update(el, supportTabView())
+    el.style.display = 'block'
+    gitterIsLoaded = true
+  })
+
   container.appendChild(el)
+  return el
 }
 
 function openLink () {
   window.open('https://discordapp.com/invite/C8mJg44')
 }
+
+module.exports = supportTab

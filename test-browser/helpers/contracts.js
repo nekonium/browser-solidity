@@ -9,7 +9,18 @@ module.exports = {
   verifyContract: verifyContract,
   testFunction,
   checkDebug,
-  goToVMtraceStep
+  goToVMtraceStep,
+  useFilter,
+  addInstance,
+  clickFunction,
+  verifyCallReturnValue,
+  createContract,
+  modalFooterOKClick,
+  setEditorValue,
+  getEditorValue,
+  testEditorValue,
+  renameFile,
+  removeFile
 }
 
 function getCompiledContracts (browser, compiled, callback) {
@@ -26,6 +37,13 @@ function getCompiledContracts (browser, compiled, callback) {
     }
   }, [], function (result) {
     callback(result)
+  })
+}
+
+function createContract (browser, inputParams, callback) {
+  browser.click('.runView')
+  .setValue('input.create', inputParams, function () {
+    browser.click('#runTabView div[class^="create"]').perform(function () { callback() })
   })
 }
 
@@ -63,14 +81,52 @@ function testContracts (browser, fileName, contractCode, compiledContractNames, 
     })
 }
 
-function testFunction (fnFullName, txHash, log, expectedInput, expectedReturn, expectedEvent) {
+function clickFunction (fnFullName, expectedInput) {
+  this.waitForElementPresent('.instance button[title="' + fnFullName + '"]')
+    .perform(function (client, done) {
+      client.execute(function () {
+        document.querySelector('#optionViews').scrollTop = document.querySelector('#optionViews').scrollHeight
+      }, [], function () {
+        if (expectedInput) {
+          client.setValue('#runTabView input[title="' + expectedInput.types + '"]', expectedInput.values, function () {})
+        }
+        done()
+      })
+    })
+    .click('.instance button[title="' + fnFullName + '"]')
+    .pause(500)
+  return this
+}
+
+function verifyCallReturnValue (browser, address, checks, done) {
+  browser.execute(function (address) {
+    var nodes = document.querySelectorAll('#instance' + address + ' div[class^="contractProperty"] div[class^="value"]')
+    var ret = []
+    for (var k = 0; k < nodes.length; k++) {
+      var text = nodes[k].innerText ? nodes[k].innerText : nodes[k].textContent
+      ret.push(text.replace('\n', ''))
+    }
+    return ret
+  }, [address], function (result) {
+    for (var k in checks) {
+      browser.assert.equal(result.value[k], checks[k])
+    }
+    done()
+  })
+}
+
+function testFunction (fnFullName, txHash, log, expectedInput, expectedReturn, expectedEvent, callback) {
   // this => browser
   this.waitForElementPresent('.instance button[title="' + fnFullName + '"]')
     .perform(function (client, done) {
-      if (expectedInput) {
-        client.setValue('#runTabView input[title="' + expectedInput.types + '"]', expectedInput.values, function () {})
-      }
-      done()
+      client.execute(function () {
+        document.querySelector('#optionViews').scrollTop = document.querySelector('#optionViews').scrollHeight
+      }, [], function () {
+        if (expectedInput) {
+          client.setValue('#runTabView input[title="' + expectedInput.types + '"]', expectedInput.values, function () {})
+        }
+        done()
+      })
     })
     .click('.instance button[title="' + fnFullName + '"]')
     .pause(500)
@@ -88,7 +144,65 @@ function testFunction (fnFullName, txHash, log, expectedInput, expectedReturn, e
         client.assert.containsText('#editor-container div[class^="terminal"] span[id="tx' + txHash + '"] table[class^="txTable"] #logs', expectedEvent)
       }
       done()
+      if (callback) callback()
     })
+  return this
+}
+
+function setEditorValue (value, callback) {
+  this.perform((client, done) => {
+    this.execute(function (value) {
+      document.getElementById('input').editor.session.setValue(value)
+    }, [value], function (result) {
+      done()
+      if (callback) callback()
+    })
+  })
+  return this
+}
+
+function addInstance (browser, address, callback) {
+  browser.setValue('.ataddressinput', address, function () {
+    browser.click('div[class^="atAddress"]')
+      .perform((client, done) => {
+        browser.execute(function () {
+          document.querySelector('#modal-footer-ok').click()
+        }, [], function (result) {
+          done()
+        })
+      }).perform(() => {
+        callback()
+      })
+  })
+}
+
+function getEditorValue (callback) {
+  this.perform((client, done) => {
+    this.execute(function (value) {
+      return document.getElementById('input').editor.getValue()
+    }, [], function (result) {
+      done(result.value)
+      callback(result.value)
+    })
+  })
+  return this
+}
+
+function testEditorValue (testvalue, callback) {
+  this.getEditorValue((value) => {
+    this.assert.equal(testvalue, value)
+    callback()
+  })
+}
+
+function modalFooterOKClick () {
+  this.perform((client, done) => {
+    this.execute(function () {
+      document.querySelector('#modal-footer-ok').click()
+    }, [], function (result) {
+      done()
+    })
+  })
   return this
 }
 
@@ -105,11 +219,98 @@ function addFile (browser, name, content, done) {
         done()
       })
     })
-    .setValue('#input textarea', content, function () {})
+    .setEditorValue(content.content)
     .pause(1000)
     .perform(function () {
       done()
     })
+}
+
+function renameFile (browser, path, newFileName, renamedPath, done) {
+  browser.execute(function (path) {
+    function contextMenuClick (element) {
+      var evt = element.ownerDocument.createEvent('MouseEvents')
+      var RIGHT_CLICK_BUTTON_CODE = 2 // the same for FF and IE
+      evt.initMouseEvent('contextmenu', true, true,
+          element.ownerDocument.defaultView, 1, 0, 0, 0, 0, false,
+          false, false, false, RIGHT_CLICK_BUTTON_CODE, null)
+      if (document.createEventObject) {
+        // dispatch for IE
+        return element.fireEvent('onclick', evt)
+      } else {
+        // dispatch for firefox + others
+        return !element.dispatchEvent(evt)
+      }
+    }
+    contextMenuClick(document.querySelector('[data-path="' + path + '"]'))
+  }, [path], function (result) {
+    browser
+    .click('#menuitemrename')
+    .perform((client, doneSetValue) => {
+      browser.execute(function (path, addvalue) {
+        document.querySelector('[data-path="' + path + '"]').innerHTML = addvalue
+      }, [path, newFileName], () => {
+        doneSetValue()
+      })
+    })
+    .click('body') // blur
+    .pause(500)
+    .click('#modal-footer-ok')
+    .waitForElementNotPresent('[data-path="' + path + '"]')
+    .waitForElementPresent('[data-path="' + renamedPath + '"]')
+    .perform(() => {
+      done()
+    })
+  })
+}
+
+function removeFile (browser, path, done) {
+  browser.execute(function (path, value) {
+    function contextMenuClick (element) {
+      var evt = element.ownerDocument.createEvent('MouseEvents')
+      var RIGHT_CLICK_BUTTON_CODE = 2 // the same for FF and IE
+      evt.initMouseEvent('contextmenu', true, true,
+          element.ownerDocument.defaultView, 1, 0, 0, 0, 0, false,
+          false, false, false, RIGHT_CLICK_BUTTON_CODE, null)
+      if (document.createEventObject) {
+        // dispatch for IE
+        return element.fireEvent('onclick', evt)
+      } else {
+        // dispatch for firefox + others
+        return !element.dispatchEvent(evt)
+      }
+    }
+    contextMenuClick(document.querySelector('[data-path="' + path + '"]'))
+  }, [path], function (result) {
+    browser
+    .click('#menuitemdelete')
+    .pause(500)
+    .click('#modal-footer-ok')
+    .waitForElementNotPresent('[data-path="' + path + '"]')
+    .perform(() => {
+      done()
+    })
+  })
+}
+
+function useFilter (browser, filter, test, done) {
+  if (browser.options.desiredCapabilities.browserName === 'chrome') { // nightwatch deos not handle well that part.... works locally
+    done()
+    return
+  }
+  var filterClass = '#editor-container div[class^="search"] input[class^="filter"]'
+  browser.setValue(filterClass, filter, function () {
+    browser.execute(function () {
+      return document.querySelector('#editor-container div[class^="journal"]').innerHTML === test
+    }, [], function (result) {
+      browser.clearValue(filterClass).setValue(filterClass, '', function () {
+        if (!result.value) {
+          browser.assert.fail('useFilter on ' + filter + ' ' + test, 'info about error', '')
+        }
+        done()
+      })
+    })
+  })
 }
 
 function switchFile (browser, name, done) {
@@ -129,7 +330,14 @@ function checkDebug (browser, id, debugValue, done) {
     return document.querySelector('#' + id + ' .dropdownrawcontent').innerText
   }, [id], function (result) {
     console.log(id + ' ' + result.value)
-    var value = JSON.parse(result.value)
+    var value
+    try {
+      value = JSON.parse(result.value)
+    } catch (e) {
+      browser.assert.fail('cant parse solidity state', e.message, '')
+      done()
+      return
+    }
     var equal = deepequal(debugValue, value)
     if (!equal) {
       browser.assert.fail('checkDebug on ' + id, 'info about error', '')

@@ -3,24 +3,26 @@
 var $ = require('jquery')
 var csjs = require('csjs-inject')
 var yo = require('yo-yo')
-var remix = require('ethereum-remix')
-var EventManager = remix.lib.EventManager
+var async = require('async')
+var remixLib = require('remix-lib')
+var EventManager = remixLib.EventManager
 
 var UniversalDApp = require('./universal-dapp.js')
+var UniversalDAppUI = require('./universal-dapp-ui.js')
 var Remixd = require('./lib/remixd')
 var OffsetToLineColumnConverter = require('./lib/offsetToLineColumnConverter')
 
 var QueryParams = require('./lib/query-params')
 var GistHandler = require('./lib/gist-handler')
 var helper = require('./lib/helper')
-var Storage = require('./storage')
+var Storage = remixLib.Storage
 var Browserfiles = require('./app/files/browser-files')
 var chromeCloudStorageSync = require('./app/files/chromeCloudStorageSync')
 var SharedFolder = require('./app/files/shared-folder')
 var Config = require('./config')
 var Editor = require('./app/editor/editor')
 var Renderer = require('./app/ui/renderer')
-var Compiler = require('./app/compiler/compiler')
+var Compiler = require('remix-solidity').Compiler
 var executionContext = require('./execution-context')
 var Debugger = require('./app/debugger/debugger')
 var StaticAnalysis = require('./app/staticanalysis/staticAnalysisView')
@@ -29,16 +31,18 @@ var EditorPanel = require('./app/panels/editor-panel')
 var RighthandPanel = require('./app/panels/righthand-panel')
 var examples = require('./app/editor/example-contracts')
 var modalDialogCustom = require('./app/ui/modal-dialog-custom')
-var Txlistener = require('./app/execution/txListener')
 var TxLogger = require('./app/execution/txLogger')
-var EventsDecoder = require('./app/execution/eventsDecoder')
+var Txlistener = remixLib.execution.txListener
+var EventsDecoder = remixLib.execution.EventsDecoder
 var handleImports = require('./app/compiler/compiler-imports')
 var FileManager = require('./app/files/fileManager')
 var ContextualListener = require('./app/editor/contextualListener')
 var ContextView = require('./app/editor/contextView')
+var BasicReadOnlyExplorer = require('./app/files/basicReadOnlyExplorer')
+var toolTip = require('./app/ui/tooltip')
 
-var styleGuide = remix.ui.styleGuide
-var styles = styleGuide()
+var styleGuide = remixLib.ui.themeChooser
+var styles = styleGuide.chooser()
 
 var css = csjs`
   html { box-sizing: border-box; }
@@ -108,9 +112,18 @@ class App {
     self._api = {}
     var fileStorage = new Storage('sol:')
     self._api.config = new Config(fileStorage)
+    executionContext.init(self._api.config)
     self._api.filesProviders = {}
     self._api.filesProviders['browser'] = new Browserfiles(fileStorage)
-    self._api.filesProviders['localhost'] = new SharedFolder(new Remixd())
+    var remixd = new Remixd()
+    remixd.event.register('system', (message) => {
+      if (message.error) toolTip(message.error)
+    })
+    self._api.filesProviders['localhost'] = new SharedFolder(remixd)
+    self._api.filesProviders['swarm'] = new BasicReadOnlyExplorer('swarm')
+    self._api.filesProviders['github'] = new BasicReadOnlyExplorer('github')
+    self._api.filesProviders['gist'] = new BasicReadOnlyExplorer('gist')
+    self._api.filesProviders['ipfs'] = new BasicReadOnlyExplorer('ipfs')
     self._view = {}
     self._components = {}
     self.data = {
@@ -189,21 +202,52 @@ module.exports = App
 function run () {
   var self = this
 
+    // FIXME You can show warning if we moved our remix-ide to another path or domain
+//   if (window.location.hostname === 'yann300.github.io') {
+//     modalDialogCustom.alert(`This UNSTABLE ALPHA branch of Remix has been moved to http://ethereum.github.io/remix-live-alpha.`)
+//   } else if (window.location.hostname === 'ethereum.github.io' &&
+//   window.location.pathname.indexOf('remix-live-alpha') === 0) {
+//     modalDialogCustom.alert(`This instance of the Remix IDE is an UNSTABLE ALPHA branch.\n
+// Please only use it if you know what you are doing, otherwise visit the stable version at http://remix.ethereum.org.`)
+//   } else if (window.location.protocol.indexOf('http') === 0 &&
+//   window.location.hostname !== 'remix.ethereum.org' &&
+//   window.location.hostname !== 'localhost' &&
+//   window.location.hostname !== '127.0.0.1') {
+//     modalDialogCustom.alert(`The Remix IDE has moved to http://remix.ethereum.org.\n
+// This instance of Remix you are visiting WILL NOT BE UPDATED.\n
+// Please make a backup of your contracts and start using http://remix.ethereum.org`)
+//   }
+
+  function importExternal (url, cb) {
+    handleImports.import(url,
+      (loadingMsg) => {
+        toolTip(loadingMsg)
+      },
+      (error, content, cleanUrl, type, url) => {
+        if (!error) {
+          filesProviders[type].addReadOnly(cleanUrl, content, url)
+          cb(null, content)
+        } else {
+          cb(error)
+        }
+      })
+  }
+
   // ----------------- Compiler -----------------
   var compiler = new Compiler((url, cb) => {
     var provider = fileManager.fileProviderOf(url)
-    if (provider && provider.exists(url)) {
-      return provider.get(url, cb)
+    if (provider) {
+      provider.exists(url, (error, exist) => {
+        if (error) return cb(error)
+        if (exist) {
+          return provider.get(url, cb)
+        } else {
+          importExternal(url, cb)
+        }
+      })
+    } else {
+      importExternal(url, cb)
     }
-    handleImports.import(url, (error, content) => {
-      if (!error) {
-        // FIXME: at some point we should invalidate the browser cache
-        filesProviders['browser'].addReadOnly(url, content)
-        cb(null, content)
-      } else {
-        cb(error)
-      }
-    })
   })
   var offsetToLineColumnConverter = new OffsetToLineColumnConverter(compiler.event)
 
@@ -214,8 +258,21 @@ function run () {
     },
     getValue: (cb) => {
       try {
-        var comp = $('#value').val().split(' ')
-        cb(null, executionContext.web3().toWei(comp[0], comp.slice(1).join(' ')))
+        var number = document.querySelector('#value').value
+        var select = document.getElementById('unit')
+        var index = select.selectedIndex
+        var selectedUnit = select.querySelectorAll('option')[index].dataset.unit
+        var unit = 'ether' // default
+        if (selectedUnit === 'ether') {
+          unit = 'ether'
+        } else if (selectedUnit === 'finney') {
+          unit = 'finney'
+        } else if (selectedUnit === 'gwei') {
+          unit = 'gwei'
+        } else if (selectedUnit === 'wei') {
+          unit = 'wei'
+        }
+        cb(null, executionContext.web3().toWei(number, unit))
       } catch (e) {
         cb(e)
       }
@@ -229,11 +286,22 @@ function run () {
     api: {
       logMessage: (msg) => {
         self._components.editorpanel.log({ type: 'log', value: msg })
+      },
+      config: self._api.config,
+      detectNetwork: (cb) => {
+        executionContext.detectNetwork(cb)
+      },
+      personalMode: () => {
+        return self._api.config.get('settings/personal-mode')
       }
     },
     opt: { removable: false, removable_instances: true }
   })
+
+  var udappUI = new UniversalDAppUI(udapp)
+
   udapp.reset({}, transactionContextAPI)
+  udappUI.reset()
   udapp.event.register('debugRequested', this, function (txResult) {
     startdebugging(txResult.transactionHash)
   })
@@ -297,13 +365,16 @@ function run () {
     getCurrentFile: () => {
       return config.get('currentFile')
     },
+    getSourceName: (index) => {
+      return compiler.getSourceName(index)
+    },
     highlight: (position, node) => {
       if (compiler.lastCompilationResult && compiler.lastCompilationResult.data) {
         var lineColumn = offsetToLineColumnConverter.offsetToLineColumn(position, position.file, compiler.lastCompilationResult)
         var css = 'highlightreference'
         if (node.children && node.children.length) {
           // If node has children, highlight the entire line. if not, just highlight the current source position of the node.
-          css = 'highlightreferenceline'
+          css = 'highlightreference'
           lineColumn = {
             start: {
               line: lineColumn.start.line,
@@ -315,7 +386,10 @@ function run () {
             }
           }
         }
-        return editor.addMarker(lineColumn, compiler.lastCompilationResult.data.sourceList[position.file], css)
+        var fileName = compiler.getSourceName(position.file)
+        if (fileName) {
+          return editor.addMarker(lineColumn, fileName, css)
+        }
       }
       return null
     },
@@ -331,14 +405,26 @@ function run () {
   this._components.contextView = new ContextView({
     contextualListener: this._components.contextualListener,
     jumpTo: (position) => {
+      function jumpToLine (lineColumn) {
+        if (lineColumn.start && lineColumn.start.line && lineColumn.start.column) {
+          editor.gotoLine(lineColumn.start.line, lineColumn.end.column + 1)
+        }
+      }
       if (compiler.lastCompilationResult && compiler.lastCompilationResult.data) {
         var lineColumn = offsetToLineColumnConverter.offsetToLineColumn(position, position.file, compiler.lastCompilationResult)
-        var filename = compiler.lastCompilationResult.data.sourceList[position.file]
-        if (filename !== config.get('currentFile') && (filesProviders['browser'].exists(filename) || filesProviders['localhost'].exists(filename))) {
-          fileManager.switchFile(filename)
-        }
-        if (lineColumn.start && lineColumn.start.line && lineColumn.start.column) {
-          editor.gotoLine(lineColumn.start.line, lineColumn.start.column + 1)
+        var filename = compiler.getSourceName(position.file)
+        // TODO: refactor with rendererAPI.errorClick
+        if (filename !== config.get('currentFile')) {
+          var provider = fileManager.fileProviderOf(filename)
+          if (provider) {
+            provider.exists(filename, (error, exist) => {
+              if (error) return console.log(error)
+              fileManager.switchFile(filename)
+              jumpToLine(lineColumn)
+            })
+          }
+        } else {
+          jumpToLine(lineColumn)
         }
       }
     }
@@ -385,16 +471,24 @@ function run () {
   })
 
   // Add files received from remote instance (i.e. another browser-solidity)
-  function loadFiles (filesSet) {
-    for (var f in filesSet) {
-      var name = helper.createNonClashingName(f, filesProviders['browser'])
-      if (helper.checkSpecialChars(name)) {
-        modalDialogCustom.alert('Special characters are not allowed')
-        return
-      }
-      filesProviders['browser'].set(name, filesSet[f].content)
-    }
-    fileManager.switchFile()
+  function loadFiles (filesSet, fileProvider) {
+    if (!fileProvider) fileProvider = 'browser'
+
+    async.each(Object.keys(filesSet), (file, callback) => {
+      helper.createNonClashingName(file, filesProviders[fileProvider],
+      (error, name) => {
+        if (error) {
+          modalDialogCustom.alert('Unexpected error loading the file ' + error)
+        } else if (helper.checkSpecialChars(name)) {
+          modalDialogCustom.alert('Special characters are not allowed')
+        } else {
+          filesProviders[fileProvider].set(name, filesSet[file].content)
+        }
+        callback()
+      })
+    }, (error) => {
+      if (!error) fileManager.switchFile()
+    })
   }
 
   // Replace early callback with instant response
@@ -420,17 +514,22 @@ function run () {
             modalDialogCustom.alert('Gist load error: ' + response.data.message)
             return
           }
-          loadFiles(response.data.files)
+          loadFiles(response.data.files, 'gist')
         }
       }
     })
   })
 
   // insert ballot contract if there are no files available
-  if (!loadingFromGist && Object.keys(filesProviders['browser'].list()).length === 0) {
-    if (!filesProviders['browser'].set(examples.ballot.name, examples.ballot.content)) {
-      modalDialogCustom.alert('Failed to store example contract in browser. Remix will not work properly. Please ensure Remix has access to LocalStorage. Safari in Private mode is known not to work.')
-    }
+  if (!loadingFromGist) {
+    filesProviders['browser'].resolveDirectory('browser', (error, filesList) => {
+      if (error) console.error(error)
+      if (Object.keys(filesList).length === 0) {
+        if (!filesProviders['browser'].set(examples.ballot.name, examples.ballot.content)) {
+          modalDialogCustom.alert('Failed to store example contract in browser. Remix will not work properly. Please ensure Remix has access to LocalStorage. Safari in Private mode is known not to work.')
+        }
+      }
+    })
   }
 
   window.syncStorage = chromeCloudStorageSync
@@ -441,10 +540,8 @@ function run () {
     switchFile: function (path) {
       fileManager.switchFile(path)
     },
-    event: this.event,
-    currentFile: function () {
-      return config.get('currentFile')
-    },
+    event: fileManager.event,
+    config: config,
     currentContent: function () {
       return editor.get(config.get('currentFile'))
     },
@@ -481,10 +578,19 @@ function run () {
       }
     },
     errorClick: (errFile, errLine, errCol) => {
-      if (errFile !== config.get('currentFile') && (filesProviders['browser'].exists(errFile) || filesProviders['localhost'].exists(errFile))) {
-        fileManager.switchFile(errFile)
+      if (errFile !== config.get('currentFile')) {
+        // TODO: refactor with this._components.contextView.jumpTo
+        var provider = fileManager.fileProviderOf(errFile)
+        if (provider) {
+          provider.exists(errFile, (error, exist) => {
+            if (error) return console.log(error)
+            fileManager.switchFile(errFile)
+            editor.gotoLine(errLine, errCol)
+          })
+        }
+      } else {
+        editor.gotoLine(errLine, errCol)
       }
-      editor.gotoLine(errLine, errCol)
     }
   }
   var renderer = new Renderer(rendererAPI)
@@ -511,17 +617,45 @@ function run () {
       document.querySelector(`.${css.dragbar2}`).style.right = delta + 'px'
       onResize()
     },
+    getAccounts: (cb) => {
+      udapp.getAccounts(cb)
+    },
+    getSource: (fileName) => {
+      return compiler.getSource(fileName)
+    },
+    editorContent: () => {
+      return editor.get(editor.current())
+    },
+    currentFile: () => {
+      return config.get('currentFile')
+    },
     getContracts: () => {
-      if (compiler.lastCompilationResult && compiler.lastCompilationResult.data) {
-        return compiler.lastCompilationResult.data.contracts
-      }
-      return null
+      return compiler.getContracts()
+    },
+    getContract: (name) => {
+      return compiler.getContract(name)
+    },
+    visitContracts: (cb) => {
+      compiler.visitContracts(cb)
     },
     udapp: () => {
       return udapp
     },
+    udappUI: () => {
+      return udappUI
+    },
+    switchFile: function (path) {
+      fileManager.switchFile(path)
+    },
+    filesProviders: filesProviders,
     fileProviderOf: (path) => {
       return fileManager.fileProviderOf(path)
+    },
+    fileProvider: (name) => {
+      return self._api.filesProviders[name]
+    },
+    currentPath: function () {
+      return fileManager.currentPath()
     },
     getBalance: (address, callback) => {
       udapp.getBalance(address, (error, balance) => {
@@ -543,6 +677,7 @@ function run () {
     },
     resetDapp: (contracts) => {
       udapp.reset(contracts, transactionContextAPI)
+      udappUI.reset()
     },
     setOptimize: (optimize, runCompilation) => {
       compiler.setOptimize(optimize)
@@ -556,6 +691,12 @@ function run () {
     },
     logMessage: (msg) => {
       self._components.editorpanel.log({type: 'log', value: msg})
+    },
+    getCompilationResult: () => {
+      return compiler.lastCompilationResult
+    },
+    newAccount: (pass, cb) => {
+      udapp.newAccount(pass, cb)
     }
   }
   var rhpEvents = {
@@ -595,7 +736,7 @@ function run () {
       this.fullLineMarker = null
       this.source = null
       if (lineColumnPos) {
-        this.source = compiler.lastCompilationResult.data.sourceList[location.file] // auto switch to that tab
+        this.source = compiler.getSourceName(location.file)
         if (config.get('currentFile') !== this.source) {
           fileManager.switchFile(this.source)
         }
@@ -654,22 +795,26 @@ function run () {
     if (transactionDebugger.isActive) return
 
     fileManager.saveCurrentFile()
+    editor.clearAnnotations()
     var currentFile = config.get('currentFile')
     if (currentFile) {
-      var target = currentFile
-      var sources = {}
-      var provider = fileManager.fileProviderOf(currentFile)
-      if (provider) {
-        provider.get(target, (error, content) => {
-          if (error) {
-            console.log(error)
-          } else {
-            sources[target] = content
-            compiler.compile(sources, target)
-          }
-        })
-      } else {
-        console.log('cannot compile ' + currentFile + '. Does not belong to any explorer')
+      if (/.(.sol)$/.exec(currentFile)) {
+        // only compile *.sol file.
+        var target = currentFile
+        var sources = {}
+        var provider = fileManager.fileProviderOf(currentFile)
+        if (provider) {
+          provider.get(target, (error, content) => {
+            if (error) {
+              console.log(error)
+            } else {
+              sources[target] = { content }
+              compiler.compile(sources, target)
+            }
+          })
+        } else {
+          console.log('cannot compile ' + currentFile + '. Does not belong to any explorer')
+        }
       }
     }
   }
@@ -717,16 +862,27 @@ function run () {
     runCompiler()
 
     if (queryParams.get().context) {
-      executionContext.setContext(queryParams.get().context, queryParams.get().endpointurl)
+      let context = queryParams.get().context
+      let endPointUrl = queryParams.get().endPointUrl
+      executionContext.setContext(context, endPointUrl,
+      () => {
+        modalDialogCustom.confirm(null, 'Are you sure you want to connect to an nekonium node?', () => {
+          if (!endPointUrl) {
+            endPointUrl = 'http://localhost:8293'
+          }
+          modalDialogCustom.prompt(null, 'Web3 Provider Endpoint', endPointUrl, (target) => {
+            executionContext.setProviderFromEndpoint(target, context)
+          }, () => {})
+        }, () => {})
+      },
+      (alertMsg) => {
+        modalDialogCustom.alert(alertMsg)
+      })
     }
 
     if (queryParams.get().debugtx) {
       startdebugging(queryParams.get().debugtx)
     }
-  })
-
-  compiler.event.register('compilationStarted', this, function () {
-    editor.clearAnnotations()
   })
 
   function startdebugging (txHash) {
