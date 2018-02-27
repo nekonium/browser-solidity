@@ -13,7 +13,7 @@ var infoText = yo`
   </div>
 `
 
-function supportTabView (gitterIframe) {
+function supportTabView () {
   return yo`
     <div class="${css.supportTabView} "id="supportView">
       <div>
@@ -31,7 +31,7 @@ function supportTabView (gitterIframe) {
 }
 
 function supportTab (container, events) {
-  let el = supportTabView('')
+  let el = supportTabView()
   let gitterIsLoaded = false
 
   events.app.register('tabChanged', (tabName) => {
@@ -39,7 +39,7 @@ function supportTab (container, events) {
       return
     }
 
-    yo.update(el, supportTabView(gitterIframe))
+    yo.update(el, supportTabView())
     el.style.display = 'block'
     gitterIsLoaded = true
   })
